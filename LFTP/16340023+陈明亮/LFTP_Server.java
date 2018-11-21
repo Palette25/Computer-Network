@@ -1,6 +1,8 @@
 import java.io.*;
 import lftp.Server.UDPServer;
+import lftp.Server.UploadThread;
 import lftp.Server.UDPPacket;
+import lftp.Server.DownloadThread;
 
 import java.util.Scanner;
 
@@ -13,13 +15,7 @@ public class LFTP_Server{
 		// Start server port listen
 		System.out.println("[Info] LFTP Server start up at 127.0.0.1:8080...");
 		try{
-			server.listen((UDPPacket packet) -> {
-			String str = new String(packet.getBytes());
-			if(str.substring(0, 3).equals("GET")){
-				return true;
-			}
-			return false;
-			});
+			server.listen();
 		} catch(IOException e){
 			e.printStackTrace();
 		}

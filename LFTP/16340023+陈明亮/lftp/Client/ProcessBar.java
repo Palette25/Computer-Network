@@ -2,7 +2,6 @@ package lftp.Client;
 
 public class ProcessBar{
 	private long startPoint;  // start point percent
-	private long finishPoint;  // finish point percent
 	private long barSize;  // file size (bytes)
 	private int barLength;  // bar length
 	private String fileName;
@@ -11,7 +10,6 @@ public class ProcessBar{
 	public ProcessBar(int start, long barSize, String fileName){
 		this.startPoint = start;
 		this.barSize = barSize;
-		this.finishPoint = start + barSize / MAX_LENGTH;
 		this.fileName = fileName;
 		this.barLength = 30;
 	}
@@ -38,7 +36,9 @@ public class ProcessBar{
 	}
 
 	public void updateBar(int currPoint){
-		double rate = (double)(currPoint - startPoint) / (finishPoint - startPoint);
+		double rate = (double)(currPoint - startPoint) / ((double)barSize / MAX_LENGTH);
+		if(barSize < MAX_LENGTH && currPoint != startPoint)
+			rate = 1;
 		int sign = (int)(rate * barLength);
 
 		System.out.print("\r");

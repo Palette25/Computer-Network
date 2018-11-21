@@ -9,9 +9,7 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.SocketException;
 import java.net.UnknownHostException;
-import java.util.LinkedList;
-import java.util.Queue;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.*;
 
 public class UDPServer{
 	// Server's private members
@@ -26,10 +24,7 @@ public class UDPServer{
 	private Queue<UDPPacket> packetQueue;  // Current sending packets buffer
 	private int cwnd;  // Windows size;
 	private boolean status;  // Server's state, false for free, true for busy
-
-	public interface listenCallBack{
-		boolean handleDownload(UDPPacket pa);
-	}
+	private Map<String, Thread> map;
 
 	// Startup construct method
 	public UDPServer(){
@@ -39,18 +34,12 @@ public class UDPServer{
 			this.status = false;
 			this.seq = 0;
 			this.packetQueue = new LinkedList<>();
+			this.map = new HashMap<String, Thread>();
 		} catch(SocketException e) {
 			e.printStackTrace();
 		} catch(IOException e) {
 			e.printStackTrace();
 		}
-	}
-
-	private void sendFileToClient(String packetContent) throws IOException{
-		String path = packetContent.substring(3, packetContent.length());
-		// Read this file in server directory
-		File file = new File(serverDir + path);
-		
 	}
 
 	private UDPPacket receivePacket(){
@@ -66,51 +55,76 @@ public class UDPServer{
 		}
 	}
 
-	private void sendPacket(UDPPacket packet) throws IOException{
+	private void sendBadResponse(String path) throws IOException{
+		UDPPacket packet = new UDPPacket(this.seq++);
+		String mess = "ERROR " + path;
+		packet.setBytes(mess.getBytes());
 		byte[] data = packet.getPacketBytes();
 		DatagramPacket outPacket = new DatagramPacket(data, data.length, this.clientIP, this.clientPort);
 		socket.send(outPacket);
 	}
 
 	// Start to listen to client's request
-	public void listen(listenCallBack callback) throws IOException{
+	public void listen() throws IOException{
 		// Loop to listen to client, use callback function to handle sending file to client function
 		BufferedOutputStream bos = null;
 		while(true){
 			UDPPacket packet = receivePacket();
 			if(packet != null){
 				System.out.println("[Info]LFTP-Server receives packet from LFTP-Client....");
-				//System.out.printf("[Info]LFTP-Server receives packet contents: %s\n", new String(packet.getBytes()));
 				// Parse packet's type: beginFlag, fileContent or successFlag
+				Thread tt = null;
+				UploadThread st = null;  DownloadThread dt = null;
+				if(packet.getBytes() == null){
+					tt = map.get(clientIP.toString() + clientPort);
+					dt = (DownloadThread) tt;
+					dt.receivePacket(packet);
+					dt.run();
+					this.seq++;
+					continue;
+				}
 				String packetMess = new String(packet.getBytes());
 				String[] res = packetMess.split(" ");
+				File serverFile = null;
 				byte[] buff;
-				switch(res[0]){
-					case "Begin":
-						bos = new BufferedOutputStream(new FileOutputStream(serverDir + res[1]));
-						break;
-					case "Success":
-						bos.close();
-						System.out.printf("[Info]LFTP-Server successfully received large file: %s\n", res[1]);
-						break;
-					default:
-						buff = packet.getBytes();
-						bos.write(buff, 0, buff.length);
-						bos.flush();
-				}
-				// Set server's target s Sending ip and port
 				this.clientIP = packet.getPacket().getAddress();
 				this.clientPort = packet.getPacket().getPort();
-				UDPPacket ackPacket = new UDPPacket(this.seq);
-				this.seq++;  // Increasing the seq number;
-				ackPacket.setACK(packet.getSeq());
-				try {
-					sendPacket(ackPacket);
-					/*if(callback.handleDownload(packet)){
-						sendFileToClient(packet.getData());
-					}*/
-				} catch(IOException e) {
-					e.printStackTrace();
+				switch(res[0]){
+					case "BEGIN":
+						// Open upload thread for server to receive files from server
+						tt = new UploadThread(packet, res[1], this.seq, packet.getSeq());
+						map.put(clientIP.toString() + clientPort, tt);
+						tt.start();
+						st = (UploadThread) tt;
+						st.startThread();
+						break;
+					case "SUCCESS":
+						// Client upload success, end upload thread
+						tt = map.get(clientIP.toString() + clientPort);
+						st = (UploadThread) tt;
+						st.endThread(this.seq, packet.getSeq());
+						break;
+					case "GET":
+						// Check client download request, check file existion
+						serverFile = new File(serverDir + res[1]);
+						if(!serverFile.exists()){
+							// Client bad request
+							sendBadResponse(res[1]);
+						}else {
+							// Open download thread for server to send files to client
+							tt = new DownloadThread(packet, res[1], this.seq, packet.getSeq());
+							map.put(clientIP.toString() + clientPort, tt);
+							dt = (DownloadThread) tt;
+							dt.startThread();
+							dt.start();
+						}
+						break;
+					default:
+						// Client's uploading packets, handle and send to the speical thread
+						tt = map.get(clientIP.toString() + clientPort);
+						st = (UploadThread) tt;
+						st.receivePacket(packet.getBytes(), this.seq, packet.getSeq());
+						st.run();
 				}
 			}
 		}

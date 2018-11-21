@@ -59,10 +59,10 @@ public class UDPClient{
 		}
 		// Begin sendind file, send begin flag
 		UDPPacket packet0 = new UDPPacket(this.seq++);
-		String begin = "Begin " + path;
+		String begin = "BEGIN " + path;
 		packet0.setBytes(begin.getBytes());
 		this.packetQueue.add(packet0);
-		bar = new ProcessBar(this.seq, file.length(), path);
+		bar = new ProcessBar(this.seq-1, file.length(), path);
 		bar.initBar();
 		// Send file by dividing into pieces
 		RandomAccessFile accessFile = new RandomAccessFile(clientDir + path, "r");
@@ -79,7 +79,7 @@ public class UDPClient{
 		}
 		// End file sending, send success flag
 		UDPPacket packet1 = new UDPPacket(this.seq++);
-		String end = "Success " + path;
+		String end = "SUCCESS " + path;
 		packet1.setBytes(end.getBytes());
 		this.packetQueue.add(packet1);
 		sendPacket();
@@ -90,17 +90,77 @@ public class UDPClient{
 		// Send server a download request
 		UDPPacket getRequestPacket = new UDPPacket(this.seq);
 		this.seq++;
-		String str = "GET: " + path;
+		String str = "GET " + path;
 		getRequestPacket.setBytes(str.getBytes());
-		this.packetQueue.add(getRequestPacket);
-		// Check busy or not
-		if(this.status == false)
-			sendPacket();
+		while(true){
+			byte[] byteData = getRequestPacket.getPacketBytes();
+			DatagramPacket outPacket = new DatagramPacket(byteData, byteData.length, InetAddress.getLocalHost(), 8080);
+			socket.send(outPacket);
+			// Check return ack or error packet
+			UDPPacket backPacket = receivePacket();
+			String mess = new String(backPacket.getBytes());
+			String[] res = mess.split(" ");
+			if(res.length > 1 && res[0].equals("ERROR")){
+				System.out.printf("[Error] Download %s failed, target file does not exist!\n", res[1]);
+				return;
+			}else if(res.length > 1 && res[0].equals("OK")){
+				int errTime = 0;
+				if(backPacket != null && backPacket.isACK()){
+					startDownload(path, res[1]);
+					break;
+				}else {
+					// Meet transfer error
+					errTime++;
+				}
+				// Too many errors
+				if(errTime > 5){
+					System.out.println("[Error] Too many transfer errors, System shut down.");
+					System.exit(2);
+				}
+			}else {
+				System.out.println("[Error] Server Bad Response...");
+			}
+		}
+	}
+
+	private void startDownload(String path, String fileSize){
+		try{
+			BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream(clientDir + path));
+			bar = new ProcessBar(this.seq-1, Long.parseLong(fileSize), path);
+			bar.initBar();
+			while(true){
+				// Receive packet file
+				UDPPacket packet = receivePacket();
+				// Check end or not
+				byte[] data = packet.getBytes();
+				if(data != null){
+					String mess = new String(data);
+					String[] res = mess.split(" ");
+					if(res[0].equals("SUCCESS")){
+						break;
+					}
+					bos.write(data, 0, data.length);
+					bos.flush();
+					// Send ACK
+					UDPPacket ackPacket = new UDPPacket(this.seq++);
+					ackPacket.setACK(packet.getSeq());
+					sendACKPacket(ackPacket);
+					// Update bar
+					bar.updateBar(this.seq);
+				}
+			}
+			bos.close();
+			System.out.printf("\n[Info] Client successfully download file: %s\n", path);
+		} catch(IOException e){
+			e.printStackTrace();
+		}
+		
+
 	}
 
 	private UDPPacket receivePacket(){
-		byte[] buffer = new byte[MAX_LENGTH];
-		DatagramPacket packet = new DatagramPacket(buffer, MAX_LENGTH);
+		byte[] buffer = new byte[MAX_LENGTH + 1024];
+		DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
 	    try {
 	    	socket.receive(packet);
 	    	UDPPacket udpPacket = UDPPacket.NewUDPPacket(packet.getData());
@@ -148,12 +208,8 @@ public class UDPClient{
 
 	private void sendACKPacket(UDPPacket packet) throws IOException{
 		byte[] data = packet.getPacketBytes();
-		DatagramPacket ackPacket = new DatagramPacket(data, data.length, host, PORT_NUM);
+		DatagramPacket ackPacket = new DatagramPacket(data, data.length, host, 8080);
 		socket.send(ackPacket);
-	}
-
-	private void newFile(String fileName){
-
 	}
 
 	public void close(){
