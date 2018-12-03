@@ -45,12 +45,12 @@ public class LFTP_Client{
 				switch(sp[1]){
 					case "lsend": 
 						System.out.println("[Info] Client is ready to send file to server....");
-						client.handleSendRequest(sp[3]); 
+						client.handleSendRequest(sp[3], sp[2]); 
 						res = ""; 
 						break;
 					case "lget": 
 						System.out.println("[Info] Client is ready to get file from server....");
-						client.handleGetRequest(sp[3]); 
+						client.handleGetRequest(sp[3], sp[2]); 
 						res = ""; 
 				}
 			} catch (Exception e){

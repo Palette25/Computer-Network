@@ -5,6 +5,7 @@ public class ProcessBar{
 	private long barSize;  // file size (bytes)
 	private int barLength;  // bar length
 	private String fileName;
+	private String barInfo;
 	private final int MAX_LENGTH = 50 * 1024;
 
 	public ProcessBar(int start, long barSize, String fileName){
@@ -14,9 +15,15 @@ public class ProcessBar{
 		this.barLength = 30;
 	}
 
-	public void initBar(){
+	public void initBar(boolean flag){
 		long packetNum = this.barSize / MAX_LENGTH;
-		System.out.printf("[Info]Sending file %s to LFTP-Server: ", fileName);
+		if(flag){
+			System.out.printf("[Info]Sending file %s to LFTP-Server: ", fileName);
+			this.barInfo = "[Info]Sending file to LFTP-Server: ";
+		}else {
+			System.out.printf("[Info]Getting file %s from LFTP-Server: ", fileName);
+			this.barInfo = "[Info]Getting file from LFTP-Server: ";
+		}
 	}
 
 	public String showBar(int sign){
@@ -43,7 +50,7 @@ public class ProcessBar{
 
 		System.out.print("\r");
 
-		System.out.print("[Info]Sending file to LFTP-Server: " + showBar(sign) + String.format(" %d", (int)(rate*100)) + "%");
+		System.out.print(this.barInfo + showBar(sign) + String.format(" %d", (int)(rate*100)) + "%");
 	}
 
 };

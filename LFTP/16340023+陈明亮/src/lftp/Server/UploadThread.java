@@ -11,17 +11,21 @@ public class UploadThread extends Thread{
 	private int clientPort;
 	private int ack;
 	private int seq;
+	private long rwnd;  // UploadThread's receive windows size, make flow control
+	private int receivePacketNum;  //Record how many packets have server received
 	private String fileName;
 	private String serverDir = "lftp/Files/ServerFiles/";
 	private BufferedOutputStream bos;
 	private boolean end;
 
-	public UploadThread(UDPPacket packet, String fileName, int seq, int ack){
+	public UploadThread(UDPPacket packet, String fileName, int seq, int ack, long rwnd){
 		this.end = false;
 		this.fileName = fileName;
 		this.content = null;
 		this.seq = seq;
 		this.ack = ack;
+		this.rwnd = rwnd;
+		this.receivePacketNum = 0;
 		try{
 			this.socket = new DatagramSocket();
 			this.bos = new BufferedOutputStream(new FileOutputStream(serverDir + fileName));
@@ -41,7 +45,21 @@ public class UploadThread extends Thread{
 					bos.write(content, 0, content.length);
 					bos.flush();
 					content = null;
-					sendACKPacket(this.seq, this.ack);
+					receivePacketNum++;
+					/* Start flow control, notify client not to send anymore,
+					* 	Cause it reaches the window size, and half divide the window size
+					* 	to make speed lower, 
+					*/
+					if(receivePacketNum == rwnd){
+						receivePacketNum = 0;
+						if(rwnd >= 1000){
+							rwnd = rwnd / 2;
+						}
+						sendACKPacket(this.seq, this.ack, rwnd);
+					}else {
+						// Else stay normal receiving state
+						sendACKPacket(this.seq, this.ack, 0);
+					}
 				}
 			}
 		} catch(IOException e){
@@ -56,7 +74,7 @@ public class UploadThread extends Thread{
 	}
 
 	public void startThread(){
-		sendACKPacket(this.seq, this.ack);
+		sendACKPacket(this.seq, this.ack, 0);
 	}
 
 	public void endThread(int seq, int ack){
@@ -67,13 +85,17 @@ public class UploadThread extends Thread{
 			e.printStackTrace();
 		}
 		System.out.printf("[Info]LFTP-Server successfully received large file: %s\n", fileName);
-		sendACKPacket(seq, ack);
+		sendACKPacket(seq, ack, 0);
 	}
 
-	public void sendACKPacket(int seq, int ack_){
+	public void sendACKPacket(int seq, int ack_, long winSize){
 		try{
 			UDPPacket ackPacket = new UDPPacket(seq);
 			ackPacket.setACK(ack_);
+			ackPacket.calculateSum();
+			// Notify client change send window size or not
+			if(winSize != 0)
+				ackPacket.setWinSize(winSize);
 			byte[] data = ackPacket.getPacketBytes();
 			DatagramPacket packet = new DatagramPacket(data, data.length, this.clientIP, this.clientPort);
 			socket.send(packet);
@@ -81,5 +103,7 @@ public class UploadThread extends Thread{
 			e.printStackTrace();
 		}
 	}
+
+	
 
 }

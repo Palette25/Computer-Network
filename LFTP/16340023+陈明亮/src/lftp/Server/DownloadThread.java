@@ -12,6 +12,9 @@ public class DownloadThread extends Thread{
 	private int clientPort;
 	private int seq;
 	private int initACK;
+	private long swnd;  // Server's send windos size, make flow control
+	private int sendPacketNum = 0;  // The packet haved sent number
+	private int cwnd = 1;  // Server side's congestion window size
 	private int readPos;
 	private String fileName;
 	private int MAX_LENGTH = 50 * 1024;
@@ -37,8 +40,11 @@ public class DownloadThread extends Thread{
 		try{
 			byte[] buffer = new byte[MAX_LENGTH];
 			socket.setSoTimeout(2500);
-			if(ackPacket != null && ackPacket.isACK()){
+			if(ackPacket != null && ackPacket.isACK() && ackPacket.checkSum()){
 				int errTime = 0;
+				// change swnd notified by client
+				if(ackPacket.getWinSize() != 0)
+					this.swnd = ackPacket.getWinSize();
 				UDPPacket packet = new UDPPacket(this.seq++);
 				readPos = accessFile.read(buffer, 0, buffer.length);
 				if(readPos != -1){
@@ -46,10 +52,19 @@ public class DownloadThread extends Thread{
 				}else {
 					String end = "SUCCESS";
 					packet.setBytes(end.getBytes());
+					System.out.printf("[Info]LFTP-Server successfully sent large file: %s\n", fileName);
+					accessFile.close();
 				}
+				packet.calculateSum();
 				byte[] data = packet.getPacketBytes();
-				DatagramPacket outPacket = new DatagramPacket(data, data.length, this.clientIP, this.clientPort);;
+				DatagramPacket outPacket = new DatagramPacket(data, data.length, this.clientIP, this.clientPort);
 				socket.send(outPacket);
+				sendPacketNum++;
+				// Make flow control, check whether it's time to sleep server
+				if(sendPacketNum == this.swnd){
+					sendPacketNum = 0;
+					Thread.sleep(2500);
+				}
 				// Reset ack packet
 				ackPacket = null;
 			}
@@ -65,9 +80,12 @@ public class DownloadThread extends Thread{
 			UDPPacket pa = new UDPPacket(this.seq++);
 			pa.setACK(initACK);
 			File file = new File(serverDir + fileName);
+			this.swnd = file.length() / MAX_LENGTH;
 			String str = "OK " + file.length();
 			pa.setBytes(str.getBytes());
 			this.ackPacket = pa;
+			pa.calculateSum();
+			pa.setWinSize(swnd);
 			byte[] data = pa.getPacketBytes();
 			DatagramPacket outPacket = new DatagramPacket(data, data.length, this.clientIP, this.clientPort);
 			socket.send(outPacket);

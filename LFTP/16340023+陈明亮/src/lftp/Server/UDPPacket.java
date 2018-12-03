@@ -2,6 +2,7 @@ package lftp.Server;
 
 import java.net.DatagramPacket;
 import java.util.Objects;
+import java.util.Arrays;
 import java.io.*;
 
 public class UDPPacket implements Serializable{
@@ -10,15 +11,18 @@ public class UDPPacket implements Serializable{
 	private String packetName;  // Name of file this packet belongs to
 	private int seq;  // Sequence number
 	private int ack;  // Acknowledge number
-	private int winSize;  // Windows size
+	private int syn;  // Shake hands number
+	private int fin;  // Wave hands number
+	private long winSize;  // Transfer window size between client and server, make flow control
 	private boolean synFlag;  // Syn flag bit
 	private boolean ackFlag;  // Ack flag bit
 	private boolean finFlag;  // Fin flag bit
-	private byte[] data;
-	private int[] checksum;
+	private byte[] data;  // store packet content
+	private String checksum; // check sum
 
 	public UDPPacket(int sequence){
 		this.seq = sequence;
+		this.winSize = 0;
 	}
 
 	public UDPPacket(byte[] data){
@@ -87,22 +91,70 @@ public class UDPPacket implements Serializable{
 		return this.ackFlag;
 	}
 
-	public void setSYN(boolean in){
-		this.synFlag = in;
+	// Calculate the UDPPacket's checksum with its header infos and data
+	private String getSum(){
+		String resultHex;
+		int result = 0;
+		// Step 1. Calculate header's sum
+		result += seq + ack + syn + fin;
+		// Step 2. Calculate data's sum
+		if(data != null){
+			for(int i=0; i<data.length; i++){
+				// Make data byte signed integer
+				int value = data[i] & 0xff;
+				result += value;
+			}
+		}
+		// Step 3. Make Hex string
+		return Integer.toHexString(result);
 	}
 
-	public boolean getSYN(){
+
+	public void calculateSum(){
+		this.checksum = getSum();
+	}
+
+	public boolean checkSum(){
+		// Calculate check sum of variables in packet
+		String temp = getSum();
+		// Judge whether equal to checksum
+		if(temp.equals(checksum))
+			return true;
+		else
+			return false;
+	}
+
+	public void setSYN(int in){
+		this.syn = in;
+		this.synFlag = true;
+	}
+
+	public int getSYN(){
+		return this.syn;
+	}
+
+	public boolean isSYN(){
 		return this.synFlag;
 	}
 
-	public void setFIN(boolean in){
-		this.finFlag = in;
+	public void setFIN(int in){
+		this.fin = in;
+		this.finFlag = true;
 	}
 
-	public boolean getFIN(){
+	public int getFIN(){
+		return this.fin;
+	}
+
+	public boolean isFIN(){
 		return this.finFlag;
 	}
 
-	
+	public void setWinSize(long size){
+		this.winSize = size;
+	}
 
+	public long getWinSize(){
+		return this.winSize;
+	}
 }
